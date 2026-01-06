@@ -1,0 +1,6 @@
+{
+"AmazonDynamoDBFullAccess",
+"AWSLambdaBasicExecutionRole",
+"AWSLambdaENIManagementAccess",
+"AWSLambdaRole"
+}

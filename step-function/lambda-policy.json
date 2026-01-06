@@ -1,0 +1,25 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "lambda:InvokeFunction"
+            ],
+            "Resource": [
+                "arn:aws-us-gov:lambda:us-gov-west-1:429677519616:function:lambda-cleanup:*",
+                "arn:aws-us-gov:lambda:us-gov-west-1:429677519616:function:RetryCheckpointLambda:*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "lambda:InvokeFunction"
+            ],
+            "Resource": [
+                "arn:aws-us-gov:lambda:us-gov-west-1:429677519616:function:lambda-cleanup",
+                "arn:aws-us-gov:lambda:us-gov-west-1:429677519616:function:RetryCheckpointLambda"
+            ]
+        }
+    ]
+}

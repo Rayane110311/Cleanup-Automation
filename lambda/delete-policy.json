@@ -1,0 +1,49 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "Statement1",
+            "Effect": "Deny",
+            "Action": [
+                "s3:DeleteBucket"
+            ],
+            "Resource": [
+                "arn:aws-us-gov:s3:::cloudtrail-*"
+            ]
+        },
+        {
+            "Sid": "Statement2",
+            "Effect": "Allow",
+            "Action": [
+                "s3:DeleteBucket",
+                "rds:DeleteDBCluster",
+                "rds:DeleteDBInstance",
+                "rds:DeleteDBClusterSnapshot",
+                "rds:DeleteDBSnapshot",
+                "ec2:TerminateInstances",
+                "eks:DeleteAddon",
+                "eks:DeleteCluster",
+                "eks:DeleteNodegroup",
+                "ecs:DeleteCluster",
+                "ecs:DeleteService",
+                "elasticloadbalancing:DeleteLoadBalancer",
+                "elasticloadbalancing:DeleteLoadBalancerListeners",
+                "elasticloadbalancing:DeleteTargetGroup",
+                "elasticache:DeleteCacheCluster",
+                "elasticache:DeleteReplicationGroup",
+                "elasticache:DeleteServerlessCache",
+                "elasticache:DeleteServerlessCacheSnapshot",
+                "elasticache:DeleteSnapshot",
+                "elasticache:DeleteUser",
+                "elasticache:DeleteUserGroup",
+                "dynamodb:DeleteItem",
+                "dynamodb:DeleteTable",
+                "dynamodb:DeleteTableReplica",
+                "dynamodb:DeleteBackup"
+            ],
+            "Resource": [
+                "*"
+            ]
+        }
+    ]
+}

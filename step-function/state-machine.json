@@ -1,0 +1,107 @@
+{
+  "Comment": "Account Cleanup with Retry Checkpoint",
+  "StartAt": "Init",
+  "States": {
+    "Init": {
+      "Type": "Pass",
+      "Result": {
+        "attempt": 1,
+        "maxAttempts": 5
+      },
+      "ResultPath": "$.meta",
+      "Next": "InvokeCleanup"
+    },
+    "InvokeCleanup": {
+      "Type": "Task",
+      "Resource": "arn:aws-us-gov:lambda:us-gov-west-1:429677519616:function:lambda-cleanup:$LATEST",
+      "TimeoutSeconds": 900,
+      "HeartbeatSeconds": 300,
+      "Parameters": {
+        "regions.$": "$.input.regions",
+        "exclusions.$": "$.input.exclusions",
+        "dryRun.$": "$.input.dryRun",
+        "attempt.$": "$.meta.attempt",
+        "runId.$": "$$.Execution.Id"
+      },
+      "ResultPath": "$.cleanupResult",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "RetryCheckpointFromError"
+        }
+      ],
+      "Next": "AssessCleanupResult"
+    },
+    "AssessCleanupResult": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.cleanupResult.statusCode",
+          "NumericEquals": 200,
+          "Next": "Done"
+        }
+      ],
+      "Default": "RetryCheckpointFromResult"
+    },
+    "RetryCheckpointFromError": {
+      "Type": "Task",
+      "Resource": "arn:aws-us-gov:lambda:us-gov-west-1:429677519616:function:RetryCheckpointLambda:$LATEST",
+      "Parameters": {
+        "attempt.$": "$.meta.attempt",
+        "maxAttempts.$": "$.meta.maxAttempts",
+        "error.$": "$.error",
+        "delaySecondsDefault": 120
+      },
+      "ResultPath": "$.retryDecision",
+      "Next": "RetryOrFail"
+    },
+    "RetryCheckpointFromResult": {
+      "Type": "Task",
+      "Resource": "arn:aws-us-gov:lambda:us-gov-west-1:429677519616:function:RetryCheckpointLambda:$LATEST",
+      "Parameters": {
+        "attempt.$": "$.meta.attempt",
+        "maxAttempts.$": "$.meta.maxAttempts",
+        "cleanupResult.$": "$.cleanupResult",
+        "delaySecondsDefault": 120
+      },
+      "ResultPath": "$.retryDecision",
+      "Next": "RetryOrFail"
+    },
+    "RetryOrFail": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.retryDecision.action",
+          "StringEquals": "RETRY",
+          "Next": "WaitBeforeRetry"
+        }
+      ],
+      "Default": "HardFail"
+    },
+    "WaitBeforeRetry": {
+      "Type": "Wait",
+      "SecondsPath": "$.retryDecision.delaySeconds",
+      "Next": "BumpAttempt"
+    },
+    "BumpAttempt": {
+      "Type": "Pass",
+      "Parameters": {
+        "attempt.$": "States.MathAdd($.meta.attempt, 1)",
+        "maxAttempts.$": "$.meta.maxAttempts"
+      },
+      "ResultPath": "$.meta",
+      "Next": "InvokeCleanup"
+    },
+    "HardFail": {
+      "Type": "Fail",
+      "Error": "CleanupFailed",
+      "Cause": "Retry checkpoint decided to stop. See lastCleanupResult/error."
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}

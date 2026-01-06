@@ -1,0 +1,39 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "sqs:ListQueues",
+                "cloudformation:ListStacks",
+                "dynamodb:ListTables",
+                "ecr:DescribeRepositories",
+                "eks:ListClusters",
+                "s3:GetBucketLocation",
+                "s3:ListAllMyBuckets",
+                "s3:ListBucket",
+                "s3:GetObject",
+                "s3:PutObject",
+                "sqs:getqueueattributes",
+                "aoss:ListCollections",
+                "ec2:DescribeInstances",
+                "ec2:DescribeVolumes",
+                "ecs:ListClusters",
+                "elasticache:DescribeCacheClusters",
+                "ec2:DescribeSnapshots",
+                "memorydb:DescribeClusters",
+                "rds:DescribeDBInstances",
+                "rds:DescribeDBSnapshots",
+                "rds:DescribeDBClusters",
+                "rds:DescribeDBClusterSnapshots",
+                "eks:ListNodegroups",
+                "ecs:ListServices",
+                "elasticloadbalancing:DescribeLoadBalancers",
+                "ec2:DescribeAddresses",
+                "ec2:DescribeImages"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
