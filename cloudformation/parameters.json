@@ -1,0 +1,50 @@
+[
+  {
+    "ParameterKey": "LambdaMemorySize",
+    "ParameterValue": "512"
+  },
+  {
+    "ParameterKey": "LambdaTimeout",
+    "ParameterValue": "900"
+  },
+  {
+    "ParameterKey": "RetryLambdaMemorySize",
+    "ParameterValue": "128"
+  },
+  {
+    "ParameterKey": "RetryLambdaTimeout",
+    "ParameterValue": "60"
+  },
+  {
+    "ParameterKey": "MaxRetryAttempts",
+    "ParameterValue": "5"
+  },
+  {
+    "ParameterKey": "RetryDelaySeconds",
+    "ParameterValue": "120"
+  },
+  {
+    "ParameterKey": "EnableXRayTracing",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "LambdaCodeS3Bucket",
+    "ParameterValue": "YOUR_S3_BUCKET_NAME"
+  },
+  {
+    "ParameterKey": "CleanupLambdaS3Key",
+    "ParameterValue": "cleanup-lambda.zip"
+  },
+  {
+    "ParameterKey": "RetryLambdaS3Key",
+    "ParameterValue": "retry-lambda.zip"
+  },
+  {
+    "ParameterKey": "PyYAMLLayerS3Bucket",
+    "ParameterValue": "YOUR_S3_BUCKET_NAME"
+  },
+  {
+    "ParameterKey": "PyYAMLLayerS3Key",
+    "ParameterValue": "pyyaml-layer.zip"
+  }
+]

@@ -1,0 +1,555 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Resource Cleanup Automation with Step Functions and Lambda'
+
+Parameters:
+  LambdaMemorySize:
+    Type: Number
+    Default: 512
+    Description: Memory size for cleanup Lambda function (MB)
+    MinValue: 128
+    MaxValue: 10240
+  
+  LambdaTimeout:
+    Type: Number
+    Default: 900
+    Description: Timeout for cleanup Lambda function (seconds)
+    MinValue: 3
+    MaxValue: 900
+  
+  RetryLambdaMemorySize:
+    Type: Number
+    Default: 128
+    Description: Memory size for retry Lambda function (MB)
+    MinValue: 128
+    MaxValue: 3008
+  
+  RetryLambdaTimeout:
+    Type: Number
+    Default: 60
+    Description: Timeout for retry Lambda function (seconds)
+    MinValue: 3
+    MaxValue: 900
+  
+  MaxRetryAttempts:
+    Type: Number
+    Default: 5
+    Description: Maximum number of retry attempts for cleanup
+    MinValue: 1
+    MaxValue: 10
+  
+  RetryDelaySeconds:
+    Type: Number
+    Default: 120
+    Description: Delay between retry attempts (seconds)
+    MinValue: 30
+    MaxValue: 600
+  
+  EnableXRayTracing:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable X-Ray tracing for Step Functions and Lambda
+
+Conditions:
+  EnableXRay: !Equals [!Ref EnableXRayTracing, 'true']
+
+Resources:
+  # ========================================
+  # Lambda Execution Role for Cleanup Lambda
+  # ========================================
+  CleanupLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-CleanupLambdaRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+      Policies:
+        - PolicyName: CleanupListPermissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ListAndDescribePermissions
+                Effect: Allow
+                Action:
+                  - sqs:ListQueues
+                  - sqs:GetQueueAttributes
+                  - cloudformation:ListStacks
+                  - cloudformation:DescribeStacks
+                  - dynamodb:ListTables
+                  - ecr:DescribeRepositories
+                  - eks:ListClusters
+                  - eks:DescribeCluster
+                  - eks:ListNodegroups
+                  - s3:GetBucketLocation
+                  - s3:ListAllMyBuckets
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:ListBucketVersions
+                  - aoss:ListCollections
+                  - ec2:DescribeInstances
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeSnapshots
+                  - ec2:DescribeAddresses
+                  - ec2:DescribeImages
+                  - ecs:ListClusters
+                  - ecs:DescribeClusters
+                  - ecs:ListServices
+                  - elasticache:DescribeCacheClusters
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - memorydb:DescribeClusters
+                  - rds:DescribeDBInstances
+                  - rds:DescribeDBSnapshots
+                  - rds:DescribeDBClusters
+                  - rds:DescribeDBClusterSnapshots
+                  - lambda:ListFunctions
+                  - sns:ListTopics
+                  - elasticbeanstalk:DescribeEnvironments
+                  - elasticbeanstalk:DescribeApplications
+                  - opensearchserverless:ListCollections
+                  - sts:GetCallerIdentity
+                Resource: '*'
+        
+        - PolicyName: CleanupDeletePermissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DenyCloudTrailBucketDeletion
+                Effect: Deny
+                Action:
+                  - s3:DeleteBucket
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::cloudtrail-*'
+              
+              - Sid: AllowResourceDeletion
+                Effect: Allow
+                Action:
+                  # S3
+                  - s3:DeleteBucket
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                  # RDS
+                  - rds:DeleteDBCluster
+                  - rds:DeleteDBInstance
+                  - rds:DeleteDBClusterSnapshot
+                  - rds:DeleteDBSnapshot
+                  # EC2
+                  - ec2:TerminateInstances
+                  - ec2:DeleteVolume
+                  - ec2:DeleteSnapshot
+                  - ec2:ReleaseAddress
+                  - ec2:DeregisterImage
+                  # EKS
+                  - eks:DeleteAddon
+                  - eks:DeleteCluster
+                  - eks:DeleteNodegroup
+                  # ECS
+                  - ecs:DeleteCluster
+                  - ecs:DeleteService
+                  - ecs:UpdateService
+                  # ECR
+                  - ecr:DeleteRepository
+                  # Load Balancers
+                  - elasticloadbalancing:DeleteLoadBalancer
+                  - elasticloadbalancing:DeleteListener
+                  - elasticloadbalancing:DeleteTargetGroup
+                  # ElastiCache
+                  - elasticache:DeleteCacheCluster
+                  - elasticache:DeleteReplicationGroup
+                  - elasticache:DeleteServerlessCache
+                  - elasticache:DeleteServerlessCacheSnapshot
+                  - elasticache:DeleteSnapshot
+                  - elasticache:DeleteUser
+                  - elasticache:DeleteUserGroup
+                  # MemoryDB
+                  - memorydb:DeleteCluster
+                  # DynamoDB
+                  - dynamodb:DeleteItem
+                  - dynamodb:DeleteTable
+                  - dynamodb:DeleteTableReplica
+                  - dynamodb:DeleteBackup
+                  # Lambda
+                  - lambda:DeleteFunction
+                  # SNS/SQS
+                  - sns:DeleteTopic
+                  - sqs:DeleteQueue
+                  # CloudFormation
+                  - cloudformation:DeleteStack
+                  # Elastic Beanstalk
+                  - elasticbeanstalk:TerminateEnvironment
+                  - elasticbeanstalk:DeleteApplication
+                  # OpenSearch
+                  - opensearchserverless:DeleteCollection
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-CleanupLambdaRole'
+
+  # ========================================
+  # Lambda Execution Role for Retry Lambda
+  # ========================================
+  RetryLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-RetryLambdaRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-RetryLambdaRole'
+
+  # ========================================
+  # Step Functions Execution Role
+  # ========================================
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-StepFunctionsRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaInvokePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt CleanupLambdaFunction.Arn
+                  - !Sub '${CleanupLambdaFunction.Arn}:*'
+                  - !GetAtt RetryCheckpointLambda.Arn
+                  - !Sub '${RetryCheckpointLambda.Arn}:*'
+        
+        - PolicyName: XRayPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-StepFunctionsRole'
+
+  # ========================================
+  # Lambda Layer for PyYAML
+  # ========================================
+  PyYAMLLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub '${AWS::StackName}-PyYAML'
+      Description: PyYAML library for cleanup Lambda
+      Content:
+        S3Bucket: !Ref PyYAMLLayerS3Bucket
+        S3Key: !Ref PyYAMLLayerS3Key
+      CompatibleRuntimes:
+        - python3.9
+        - python3.10
+        - python3.11
+        - python3.12
+        - python3.13
+      CompatibleArchitectures:
+        - x86_64
+        - arm64
+
+  # Note: You'll need to create parameters for S3 bucket/key or package the layer
+  # For now, adding placeholder parameters in Metadata section
+
+  # ========================================
+  # Cleanup Lambda Function
+  # ========================================
+  CleanupLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-CleanupLambda'
+      Runtime: python3.11
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt CleanupLambdaExecutionRole.Arn
+      Timeout: !Ref LambdaTimeout
+      MemorySize: !Ref LambdaMemorySize
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref CleanupLambdaS3Key
+      Layers:
+        - !Ref PyYAMLLayer
+      Environment:
+        Variables:
+          LOG_LEVEL: INFO
+      TracingConfig:
+        Mode: !If [EnableXRay, Active, PassThrough]
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-CleanupLambda'
+
+  # ========================================
+  # Retry Checkpoint Lambda Function
+  # ========================================
+  RetryCheckpointLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-RetryCheckpointLambda'
+      Runtime: python3.11
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt RetryLambdaExecutionRole.Arn
+      Timeout: !Ref RetryLambdaTimeout
+      MemorySize: !Ref RetryLambdaMemorySize
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref RetryLambdaS3Key
+      TracingConfig:
+        Mode: !If [EnableXRay, Active, PassThrough]
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-RetryCheckpointLambda'
+
+  # ========================================
+  # Step Functions State Machine
+  # ========================================
+  CleanupStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${AWS::StackName}-CleanupStateMachine'
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      TracingConfiguration:
+        Enabled: !If [EnableXRay, true, false]
+      DefinitionString: !Sub |
+        {
+          "Comment": "Account Cleanup with Retry Checkpoint",
+          "StartAt": "Init",
+          "States": {
+            "Init": {
+              "Type": "Pass",
+              "Result": {
+                "attempt": 1,
+                "maxAttempts": ${MaxRetryAttempts}
+              },
+              "ResultPath": "$.meta",
+              "Next": "InvokeCleanup"
+            },
+            "InvokeCleanup": {
+              "Type": "Task",
+              "Resource": "${CleanupLambdaFunction.Arn}",
+              "TimeoutSeconds": 900,
+              "HeartbeatSeconds": 300,
+              "Parameters": {
+                "regions.$": "$.input.regions",
+                "exclusions.$": "$.input.exclusions",
+                "dry_run.$": "$.input.dryRun",
+                "attempt.$": "$.meta.attempt",
+                "runId.$": "$$.Execution.Id"
+              },
+              "ResultPath": "$.cleanupResult",
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.error",
+                  "Next": "RetryCheckpointFromError"
+                }
+              ],
+              "Next": "AssessCleanupResult"
+            },
+            "AssessCleanupResult": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.cleanupResult.statusCode",
+                  "NumericEquals": 200,
+                  "Next": "Done"
+                }
+              ],
+              "Default": "RetryCheckpointFromResult"
+            },
+            "RetryCheckpointFromError": {
+              "Type": "Task",
+              "Resource": "${RetryCheckpointLambda.Arn}",
+              "Parameters": {
+                "attempt.$": "$.meta.attempt",
+                "maxAttempts.$": "$.meta.maxAttempts",
+                "error.$": "$.error",
+                "delaySecondsDefault": ${RetryDelaySeconds}
+              },
+              "ResultPath": "$.retryDecision",
+              "Next": "RetryOrFail"
+            },
+            "RetryCheckpointFromResult": {
+              "Type": "Task",
+              "Resource": "${RetryCheckpointLambda.Arn}",
+              "Parameters": {
+                "attempt.$": "$.meta.attempt",
+                "maxAttempts.$": "$.meta.maxAttempts",
+                "cleanupResult.$": "$.cleanupResult",
+                "delaySecondsDefault": ${RetryDelaySeconds}
+              },
+              "ResultPath": "$.retryDecision",
+              "Next": "RetryOrFail"
+            },
+            "RetryOrFail": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.retryDecision.action",
+                  "StringEquals": "RETRY",
+                  "Next": "WaitBeforeRetry"
+                }
+              ],
+              "Default": "HardFail"
+            },
+            "WaitBeforeRetry": {
+              "Type": "Wait",
+              "SecondsPath": "$.retryDecision.delaySeconds",
+              "Next": "BumpAttempt"
+            },
+            "BumpAttempt": {
+              "Type": "Pass",
+              "Parameters": {
+                "attempt.$": "States.MathAdd($.meta.attempt, 1)",
+                "maxAttempts.$": "$.meta.maxAttempts"
+              },
+              "ResultPath": "$.meta",
+              "Next": "InvokeCleanup"
+            },
+            "HardFail": {
+              "Type": "Fail",
+              "Error": "CleanupFailed",
+              "Cause": "Retry checkpoint decided to stop. See lastCleanupResult/error."
+            },
+            "Done": {
+              "Type": "Succeed"
+            }
+          }
+        }
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-CleanupStateMachine'
+
+  # ========================================
+  # CloudWatch Log Groups
+  # ========================================
+  CleanupLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${CleanupLambdaFunction}'
+      RetentionInDays: 30
+
+  RetryLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${RetryCheckpointLambda}'
+      RetentionInDays: 30
+
+  StateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/states/${AWS::StackName}-CleanupStateMachine'
+      RetentionInDays: 30
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Lambda Configuration
+        Parameters:
+          - LambdaMemorySize
+          - LambdaTimeout
+          - RetryLambdaMemorySize
+          - RetryLambdaTimeout
+      - Label:
+          default: Retry Configuration
+        Parameters:
+          - MaxRetryAttempts
+          - RetryDelaySeconds
+      - Label:
+          default: Monitoring Configuration
+        Parameters:
+          - EnableXRayTracing
+      - Label:
+          default: Deployment Configuration (Required)
+        Parameters:
+          - LambdaCodeS3Bucket
+          - CleanupLambdaS3Key
+          - RetryLambdaS3Key
+          - PyYAMLLayerS3Bucket
+          - PyYAMLLayerS3Key
+
+# Note: Add these parameters at the top of the Parameters section
+# They are required for deployment
+Parameters:
+  LambdaCodeS3Bucket:
+    Type: String
+    Description: S3 bucket containing Lambda deployment packages
+  
+  CleanupLambdaS3Key:
+    Type: String
+    Default: cleanup-lambda.zip
+    Description: S3 key for cleanup Lambda deployment package
+  
+  RetryLambdaS3Key:
+    Type: String
+    Default: retry-lambda.zip
+    Description: S3 key for retry Lambda deployment package
+  
+  PyYAMLLayerS3Bucket:
+    Type: String
+    Description: S3 bucket containing PyYAML layer
+  
+  PyYAMLLayerS3Key:
+    Type: String
+    Default: pyyaml-layer.zip
+    Description: S3 key for PyYAML layer package
+
+Outputs:
+  CleanupLambdaArn:
+    Description: ARN of the Cleanup Lambda function
+    Value: !GetAtt CleanupLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CleanupLambdaArn'
+  
+  RetryLambdaArn:
+    Description: ARN of the Retry Lambda function
+    Value: !GetAtt RetryCheckpointLambda.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RetryLambdaArn'
+  
+  StateMachineArn:
+    Description: ARN of the Step Functions state machine
+    Value: !GetAtt CleanupStateMachine.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-StateMachineArn'
+  
+  CleanupLambdaRoleArn:
+    Description: ARN of the Cleanup Lambda execution role
+    Value: !GetAtt CleanupLambdaExecutionRole.Arn
+  
+  StepFunctionsRoleArn:
+    Description: ARN of the Step Functions execution role
+    Value: !GetAtt StepFunctionsExecutionRole.Arn

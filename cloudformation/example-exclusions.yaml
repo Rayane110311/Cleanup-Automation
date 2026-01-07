@@ -1,0 +1,113 @@
+# Example exclusions configuration
+# This file shows patterns for excluding resources from cleanup
+# Use wildcard patterns (*) to match multiple resources
+
+exclude:
+  # S3 Buckets - exclude production and backup buckets
+  s3:
+    - "prod-*"                    # Any bucket starting with prod-
+    - "production-*"              # Any bucket starting with production-
+    - "backup-*"                  # Any backup buckets
+    - "*-backups"                 # Any bucket ending with -backups
+    - "cloudtrail-*"              # CloudTrail buckets (also protected by IAM deny policy)
+    - "config-bucket-*"           # AWS Config buckets
+    - "aws-logs-*"                # AWS service log buckets
+  
+  # RDS - exclude production databases
+  rds:
+    - "production-*"              # Production database instances
+    - "prod-*"                    # Prod database instances
+    - "*-production"              # Instances ending with -production
+    - "master-db"                 # Specific master database
+  
+  # EC2 Instances - exclude by instance ID or name tag
+  ec2:
+    - "i-prod*"                   # Instance IDs starting with i-prod
+    - "bastion-host"              # Specific bastion host by name
+    - "*-production-*"            # Instances with production in name
+    - "nat-instance"              # NAT instances
+  
+  # Lambda Functions
+  lambda:
+    - "prod-*"                    # Production Lambda functions
+    - "critical-*"                # Critical Lambda functions
+    - "*-production"              # Functions ending with production
+    - "cleanup-automation-*"      # Exclude the cleanup automation itself!
+  
+  # DynamoDB Tables
+  dynamodb:
+    - "production-*"              # Production tables
+    - "prod-*"                    # Prod tables
+    - "*-state-*"                 # Terraform/application state tables
+  
+  # CloudFormation Stacks
+  cloudformation:
+    - "infrastructure-*"          # Infrastructure stacks
+    - "prod-*"                    # Production stacks
+    - "network-*"                 # Network infrastructure
+    - "cleanup-automation-*"      # Exclude the cleanup automation stack!
+  
+  # EKS Clusters
+  eks:
+    - "production-*"              # Production Kubernetes clusters
+    - "prod-*"                    # Prod clusters
+  
+  # ECS Clusters
+  ecs:
+    - "production-*"              # Production ECS clusters
+    - "prod-*"                    # Prod clusters
+  
+  # ECR Repositories
+  ecr:
+    - "prod/*"                    # Production container images
+    - "production/*"              # Production repositories
+    - "base-images/*"             # Base images
+  
+  # ElastiCache
+  elasticache:
+    - "prod-*"                    # Production Redis/Memcached
+    - "production-*"              # Production caches
+  
+  # MemoryDB
+  memorydb:
+    - "prod-*"                    # Production MemoryDB
+    - "production-*"              # Production MemoryDB
+  
+  # OpenSearch
+  opensearch:
+    - "production-*"              # Production OpenSearch collections
+    - "prod-*"                    # Prod collections
+  
+  # SQS Queues
+  sqs:
+    - "prod-*"                    # Production queues
+    - "production-*"              # Production queues
+    - "*-dlq"                     # Dead letter queues
+  
+  # SNS Topics
+  sns:
+    - "prod-*"                    # Production topics
+    - "production-*"              # Production topics
+    - "alerts-*"                  # Alert topics
+  
+  # Elastic Beanstalk
+  elasticbeanstalk:
+    - "production-*"              # Production environments
+    - "prod-*"                    # Prod environments
+  
+  # Load Balancers
+  elb:
+    - "prod-*"                    # Production load balancers
+    - "production-*"              # Production load balancers
+
+# Pattern Matching Examples:
+# 
+# "exact-name"      - Matches exactly "exact-name"
+# "prefix-*"        - Matches anything starting with "prefix-"
+# "*-suffix"        - Matches anything ending with "-suffix"
+# "*middle*"        - Matches anything containing "middle"
+# 
+# Patterns are case-sensitive!
+# 
+# Multiple patterns can be specified for each service.
+# If ANY pattern matches, the resource will be excluded.
