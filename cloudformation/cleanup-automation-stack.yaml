@@ -52,10 +52,68 @@ Parameters:
       - 'false'
     Description: Enable X-Ray tracing for Step Functions and Lambda
 
+  LambdaCodeS3Bucket:
+    Type: String
+    Description: S3 bucket containing Lambda deployment packages
+  
+  CleanupLambdaS3Key:
+    Type: String
+    Default: cleanup-lambda.zip
+    Description: S3 key for cleanup Lambda deployment package
+  
+  RetryLambdaS3Key:
+    Type: String
+    Default: retry-lambda.zip
+    Description: S3 key for retry Lambda deployment package
+  
+  PyYAMLLayerS3Bucket:
+    Type: String
+    Description: S3 bucket containing PyYAML layer
+  
+  PyYAMLLayerS3Key:
+    Type: String
+    Default: pyyaml-layer.zip
+    Description: S3 key for PyYAML layer package
+  
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID where the cleanup Lambda function will be deployed
+  
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnet IDs for Lambda function (use private subnets with NAT Gateway)
+  
+  AllowedCidrBlock:
+    Type: String
+    Default: 10.0.0.0/8
+    Description: CIDR block allowed for inbound traffic to Lambda security group
+
+
 Conditions:
   EnableXRay: !Equals [!Ref EnableXRayTracing, 'true']
 
 Resources:
+  # ========================================
+  # Security Group for Cleanup Lambda
+  # ========================================
+  CleanupLambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${AWS::StackName}-ResourceCleanupSG'
+      GroupDescription: Security group for Resource Cleanup Lambda function
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          CidrIp: !Ref AllowedCidrBlock
+          Description: Allow all traffic from internal network
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ResourceCleanupSG'
+
   # ========================================
   # Lambda Execution Role for Cleanup Lambda
   # ========================================
@@ -71,9 +129,9 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+        - arn:aws-us-gov:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws-us-gov:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - arn:aws-us-gov:iam::aws:policy/AmazonDynamoDBFullAccess
       Policies:
         - PolicyName: CleanupListPermissions
           PolicyDocument:
@@ -211,7 +269,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws-us-gov:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Tags:
         - Key: Name
           Value: !Sub '${AWS::StackName}-RetryLambdaRole'
@@ -284,12 +342,12 @@ Resources:
   # For now, adding placeholder parameters in Metadata section
 
   # ========================================
-  # Cleanup Lambda Function
+  # Cleanup Lambda Function (Resource Cleanup Handler)
   # ========================================
   CleanupLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub '${AWS::StackName}-CleanupLambda'
+      FunctionName: !Sub '${AWS::StackName}-ResourceCleanupHandler'
       Runtime: python3.11
       Handler: lambda_function.lambda_handler
       Role: !GetAtt CleanupLambdaExecutionRole.Arn
@@ -300,6 +358,10 @@ Resources:
         S3Key: !Ref CleanupLambdaS3Key
       Layers:
         - !Ref PyYAMLLayer
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref CleanupLambdaSecurityGroup
+        SubnetIds: !Ref SubnetIds
       Environment:
         Variables:
           LOG_LEVEL: INFO
@@ -307,15 +369,15 @@ Resources:
         Mode: !If [EnableXRay, Active, PassThrough]
       Tags:
         - Key: Name
-          Value: !Sub '${AWS::StackName}-CleanupLambda'
+          Value: !Sub '${AWS::StackName}-ResourceCleanupHandler'
 
   # ========================================
-  # Retry Checkpoint Lambda Function
+  # Retry Checkpoint Lambda Function (Retry Decision Handler)
   # ========================================
   RetryCheckpointLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub '${AWS::StackName}-RetryCheckpointLambda'
+      FunctionName: !Sub '${AWS::StackName}-RetryDecisionHandler'
       Runtime: python3.11
       Handler: lambda_function.lambda_handler
       Role: !GetAtt RetryLambdaExecutionRole.Arn
@@ -328,7 +390,7 @@ Resources:
         Mode: !If [EnableXRay, Active, PassThrough]
       Tags:
         - Key: Name
-          Value: !Sub '${AWS::StackName}-RetryCheckpointLambda'
+          Value: !Sub '${AWS::StackName}-RetryDecisionHandler'
 
   # ========================================
   # Step Functions State Machine
@@ -458,13 +520,13 @@ Resources:
   CleanupLambdaLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '/aws/lambda/${CleanupLambdaFunction}'
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-ResourceCleanupHandler'
       RetentionInDays: 30
 
   RetryLambdaLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '/aws/lambda/${RetryCheckpointLambda}'
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-RetryDecisionHandler'
       RetentionInDays: 30
 
   StateMachineLogGroup:
@@ -476,6 +538,12 @@ Resources:
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
+      - Label:
+          default: VPC Configuration (Required)
+        Parameters:
+          - VpcId
+          - SubnetIds
+          - AllowedCidrBlock
       - Label:
           default: Lambda Configuration
         Parameters:
@@ -500,32 +568,6 @@ Metadata:
           - RetryLambdaS3Key
           - PyYAMLLayerS3Bucket
           - PyYAMLLayerS3Key
-
-# Note: Add these parameters at the top of the Parameters section
-# They are required for deployment
-Parameters:
-  LambdaCodeS3Bucket:
-    Type: String
-    Description: S3 bucket containing Lambda deployment packages
-  
-  CleanupLambdaS3Key:
-    Type: String
-    Default: cleanup-lambda.zip
-    Description: S3 key for cleanup Lambda deployment package
-  
-  RetryLambdaS3Key:
-    Type: String
-    Default: retry-lambda.zip
-    Description: S3 key for retry Lambda deployment package
-  
-  PyYAMLLayerS3Bucket:
-    Type: String
-    Description: S3 bucket containing PyYAML layer
-  
-  PyYAMLLayerS3Key:
-    Type: String
-    Default: pyyaml-layer.zip
-    Description: S3 key for PyYAML layer package
 
 Outputs:
   CleanupLambdaArn:

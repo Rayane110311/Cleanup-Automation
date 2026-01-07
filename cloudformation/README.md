@@ -19,13 +19,22 @@ The solution consists of:
    aws configure
    ```
 
-2. **AWS Account**: You need appropriate permissions to:
+2. **VPC Configuration**: You need an existing VPC with:
+   - **Private Subnets**: At least 2 private subnets (for high availability)
+   - **NAT Gateway**: Required for Lambda to access AWS services and the internet
+   - **VPC Endpoints** (Optional but recommended): For better performance and lower costs
+     - S3 VPC Endpoint
+     - DynamoDB VPC Endpoint
+     - EC2 VPC Endpoint
+
+3. **AWS Account**: You need appropriate permissions to:
    - Create IAM roles and policies
    - Create Lambda functions
    - Create Step Functions state machines
    - Upload files to S3
+   - Create EC2 Security Groups
 
-3. **S3 Bucket**: An S3 bucket to store Lambda deployment packages
+4. **S3 Bucket**: An S3 bucket to store Lambda deployment packages
    ```powershell
    aws s3 mb s3://your-deployment-bucket --region us-east-1
    ```
@@ -61,15 +70,27 @@ aws s3 cp build/pyyaml-layer.zip s3://your-deployment-bucket/
 
 ### Step 3: Configure Parameters
 
-Edit `parameters.json` and update the following values:
+Edit `parameters.json` and update the following **required** values:
+
+**VPC Configuration:**
+- `VpcId`: Your VPC ID (e.g., `vpc-1234567890abcdef0`)
+- `SubnetIds`: Comma-separated list of private subnet IDs (e.g., `subnet-abc123,subnet-def456`)
+- `AllowedCidrBlock`: CIDR block for inbound traffic (default: `10.0.0.0/8`)
+
+**S3 Deployment Configuration:**
 - `LambdaCodeS3Bucket`: Your S3 bucket name
 - `PyYAMLLayerS3Bucket`: Your S3 bucket name (usually the same)
 
-Optional adjustments:
+**Optional adjustments:**
 - `LambdaMemorySize`: Memory allocation for cleanup Lambda (default: 512 MB)
 - `LambdaTimeout`: Timeout for cleanup Lambda (default: 900 seconds)
 - `MaxRetryAttempts`: Number of retry attempts (default: 5)
 - `RetryDelaySeconds`: Delay between retries (default: 120 seconds)
+
+**Important VPC Notes:**
+- Use **private subnets** with NAT Gateway for Lambda deployment
+- The Lambda function needs internet access to call AWS APIs
+- Consider using VPC endpoints to reduce NAT Gateway data transfer costs
 
 ### Step 4: Deploy CloudFormation Stack
 
@@ -202,14 +223,17 @@ aws stepfunctions get-execution-history --execution-arn <execution-arn>
 ### CloudWatch Logs
 
 Logs are available in CloudWatch Log Groups:
-- `/aws/lambda/<StackName>-CleanupLambda`
-- `/aws/lambda/<StackName>-RetryCheckpointLambda`
+- `/aws/lambda/<StackName>-ResourceCleanupHandler`
+- `/aws/lambda/<StackName>-RetryDecisionHandler`
 - `/aws/states/<StackName>-CleanupStateMachine`
 
 View logs:
 ```powershell
-# Cleanup Lambda logs
-aws logs tail /aws/lambda/cleanup-automation-stack-CleanupLambda --follow
+# Resource Cleanup Handler logs
+aws logs tail /aws/lambda/cleanup-automation-stack-ResourceCleanupHandler --follow
+
+# Retry Decision Handler logs
+aws logs tail /aws/lambda/cleanup-automation-stack-RetryDecisionHandler --follow
 
 # State Machine logs
 aws logs tail /aws/states/cleanup-automation-stack-CleanupStateMachine --follow

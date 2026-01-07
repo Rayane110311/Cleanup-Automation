@@ -149,8 +149,8 @@ aws stepfunctions start-execution `
 ## Monitoring
 
 View logs in CloudWatch:
-- `/aws/lambda/<StackName>-CleanupLambda`
-- `/aws/lambda/<StackName>-RetryCheckpointLambda`
+- `/aws/lambda/<StackName>-ResourceCleanupHandler`
+- `/aws/lambda/<StackName>-RetryDecisionHandler`
 - `/aws/states/<StackName>-CleanupStateMachine`
 
 ## Cost Optimization

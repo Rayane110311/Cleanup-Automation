@@ -1,5 +1,17 @@
 [
   {
+    "ParameterKey": "VpcId",
+    "ParameterValue": "vpc-XXXXXXXXX"
+  },
+  {
+    "ParameterKey": "SubnetIds",
+    "ParameterValue": "subnet-XXXXXXXXX,subnet-YYYYYYYYY"
+  },
+  {
+    "ParameterKey": "AllowedCidrBlock",
+    "ParameterValue": "10.0.0.0/8"
+  },
+  {
     "ParameterKey": "LambdaMemorySize",
     "ParameterValue": "512"
   },
