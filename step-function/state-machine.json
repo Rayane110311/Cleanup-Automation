@@ -9,6 +9,37 @@
         "maxAttempts": 5
       },
       "ResultPath": "$.meta",
+      "Next": "PreCleanupNotification"
+    },
+    "PreCleanupNotification": {
+      "Type": "Task",
+      "Resource": "arn:aws-us-gov:lambda:us-gov-west-1:429677519616:function:PriorIntimationHandler:$LATEST",
+      "TimeoutSeconds": 120,
+      "Parameters": {
+        "input.$": "$.input",
+        "attempt.$": "$.meta.attempt",
+        "runId.$": "$$.Execution.Id"
+      },
+      "ResultPath": "$.notificationResult",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.notificationError",
+          "Next": "NotificationFail"
+        }
+      ],
       "Next": "InvokeCleanup"
     },
     "InvokeCleanup": {
@@ -99,6 +130,11 @@
       "Type": "Fail",
       "Error": "CleanupFailed",
       "Cause": "Retry checkpoint decided to stop. See lastCleanupResult/error."
+    },
+    "NotificationFail": {
+      "Type": "Fail",
+      "Error": "PriorNotificationFailed",
+      "Cause": "Unable to send prior intimation mail."
     },
     "Done": {
       "Type": "Succeed"

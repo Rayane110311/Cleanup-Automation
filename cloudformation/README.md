@@ -50,9 +50,10 @@ cd cloudformation
 .\package-lambdas.ps1
 ```
 
-This creates three ZIP files in the `cloudformation/build/` directory:
+This creates four ZIP files in the `cloudformation/build/` directory:
 - `cleanup-lambda.zip` - Main cleanup Lambda
 - `retry-lambda.zip` - Retry checkpoint Lambda
+- `notification-lambda.zip` - Prior intimation notification Lambda
 - `pyyaml-layer.zip` - PyYAML Lambda layer
 
 **Optional**: Upload directly to S3 during packaging:
@@ -65,6 +66,7 @@ This creates three ZIP files in the `cloudformation/build/` directory:
 ```powershell
 aws s3 cp build/cleanup-lambda.zip s3://your-deployment-bucket/
 aws s3 cp build/retry-lambda.zip s3://your-deployment-bucket/
+aws s3 cp build/notification-lambda.zip s3://your-deployment-bucket/
 aws s3 cp build/pyyaml-layer.zip s3://your-deployment-bucket/
 ```
 
@@ -225,6 +227,7 @@ aws stepfunctions get-execution-history --execution-arn <execution-arn>
 Logs are available in CloudWatch Log Groups:
 - `/aws/lambda/<StackName>-ResourceCleanupHandler`
 - `/aws/lambda/<StackName>-RetryDecisionHandler`
+- `/aws/lambda/<StackName>-PriorIntimationHandler`
 - `/aws/states/<StackName>-CleanupStateMachine`
 
 View logs:
@@ -234,6 +237,9 @@ aws logs tail /aws/lambda/cleanup-automation-stack-ResourceCleanupHandler --foll
 
 # Retry Decision Handler logs
 aws logs tail /aws/lambda/cleanup-automation-stack-RetryDecisionHandler --follow
+
+# Prior Intimation Handler logs
+aws logs tail /aws/lambda/cleanup-automation-stack-PriorIntimationHandler --follow
 
 # State Machine logs
 aws logs tail /aws/states/cleanup-automation-stack-CleanupStateMachine --follow

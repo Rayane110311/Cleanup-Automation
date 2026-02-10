@@ -29,6 +29,20 @@ Parameters:
     Description: Timeout for retry Lambda function (seconds)
     MinValue: 3
     MaxValue: 900
+
+  NotificationLambdaMemorySize:
+    Type: Number
+    Default: 128
+    Description: Memory size for notification Lambda function (MB)
+    MinValue: 128
+    MaxValue: 3008
+
+  NotificationLambdaTimeout:
+    Type: Number
+    Default: 60
+    Description: Timeout for notification Lambda function (seconds)
+    MinValue: 3
+    MaxValue: 900
   
   MaxRetryAttempts:
     Type: Number
@@ -65,6 +79,11 @@ Parameters:
     Type: String
     Default: retry-lambda.zip
     Description: S3 key for retry Lambda deployment package
+
+  NotificationLambdaS3Key:
+    Type: String
+    Default: notification-lambda.zip
+    Description: S3 key for notification Lambda deployment package
   
   PyYAMLLayerS3Bucket:
     Type: String
@@ -98,7 +117,7 @@ Parameters:
 
   ScheduleExpression:
     Type: String
-    Default: 'cron(0 18 ? * FRI#2 *)'
+    Default: 'cron(0 9 ? * WED#2 *)'
     Description: Schedule expression for EventBridge Scheduler (second Friday at 6 PM)
 
   ScheduleExpressionTimezone:
@@ -108,7 +127,7 @@ Parameters:
 
   ScheduledRegionsJson:
     Type: String
-    Default: '["us-east-1"]'
+    Default: '["us-gov-west-1"]'
     Description: JSON array of regions for scheduled execution payload
 
   ScheduledDryRun:
@@ -123,6 +142,47 @@ Parameters:
     Type: String
     Default: '{"s3":["prod-*","backup-*","cloudtrail-*"],"rds":["production-*"],"ec2":["i-prod*"],"lambda":["cleanup-automation-*"],"cloudformation":["cleanup-automation-*"]}'
     Description: JSON object of exclusion patterns for scheduled execution payload
+
+  SmtpRelayHost:
+    Type: String
+    Default: test.com
+    Description: SMTP relay host for prior intimation emails
+
+  SmtpRelayPort:
+    Type: Number
+    Default: 425
+    Description: SMTP relay port for prior intimation emails
+    MinValue: 1
+    MaxValue: 65535
+
+  SmtpUseStartTLS:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable STARTTLS when connecting to SMTP relay
+
+  SmtpUsername:
+    Type: String
+    Default: ''
+    Description: Optional SMTP username for relay authentication
+
+  SmtpPassword:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Optional SMTP password for relay authentication
+
+  NotificationMailFrom:
+    Type: String
+    Default: cleanup-automation@test.com
+    Description: Sender email address used for prior intimation mails
+
+  NotificationMailTo:
+    Type: String
+    Default: ops@test.com
+    Description: Comma-separated list of recipient email addresses
 
 
 Conditions:
@@ -312,6 +372,27 @@ Resources:
           Value: !Sub '${AWS::StackName}-RetryLambdaRole'
 
   # ========================================
+  # Lambda Execution Role for Notification Lambda
+  # ========================================
+  NotificationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-NotificationLambdaRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws-us-gov:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws-us-gov:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-NotificationLambdaRole'
+
+  # ========================================
   # Step Functions Execution Role
   # ========================================
   StepFunctionsExecutionRole:
@@ -334,6 +415,8 @@ Resources:
                 Action:
                   - lambda:InvokeFunction
                 Resource:
+                  - !GetAtt NotificationLambdaFunction.Arn
+                  - !Sub '${NotificationLambdaFunction.Arn}:*'
                   - !GetAtt CleanupLambdaFunction.Arn
                   - !Sub '${CleanupLambdaFunction.Arn}:*'
                   - !GetAtt RetryCheckpointLambda.Arn
@@ -430,6 +513,40 @@ Resources:
           Value: !Sub '${AWS::StackName}-RetryDecisionHandler'
 
   # ========================================
+  # Notification Lambda Function (Prior Intimation Handler)
+  # ========================================
+  NotificationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-PriorIntimationHandler'
+      Runtime: python3.11
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt NotificationLambdaExecutionRole.Arn
+      Timeout: !Ref NotificationLambdaTimeout
+      MemorySize: !Ref NotificationLambdaMemorySize
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref NotificationLambdaS3Key
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref CleanupLambdaSecurityGroup
+        SubnetIds: !Ref SubnetIds
+      Environment:
+        Variables:
+          SMTP_HOST: !Ref SmtpRelayHost
+          SMTP_PORT: !Ref SmtpRelayPort
+          SMTP_USE_STARTTLS: !Ref SmtpUseStartTLS
+          SMTP_USERNAME: !Ref SmtpUsername
+          SMTP_PASSWORD: !Ref SmtpPassword
+          MAIL_FROM: !Ref NotificationMailFrom
+          MAIL_TO: !Ref NotificationMailTo
+      TracingConfig:
+        Mode: !If [EnableXRay, Active, PassThrough]
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-PriorIntimationHandler'
+
+  # ========================================
   # Step Functions State Machine
   # ========================================
   CleanupStateMachine:
@@ -451,6 +568,37 @@ Resources:
                 "maxAttempts": ${MaxRetryAttempts}
               },
               "ResultPath": "$.meta",
+              "Next": "PreCleanupNotification"
+            },
+            "PreCleanupNotification": {
+              "Type": "Task",
+              "Resource": "${NotificationLambdaFunction.Arn}",
+              "TimeoutSeconds": 120,
+              "Parameters": {
+                "input.$": "$.input",
+                "attempt.$": "$.meta.attempt",
+                "runId.$": "$$.Execution.Id"
+              },
+              "ResultPath": "$.notificationResult",
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "IntervalSeconds": 30,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": [
+                    "States.ALL"
+                  ],
+                  "ResultPath": "$.notificationError",
+                  "Next": "NotificationFail"
+                }
+              ],
               "Next": "InvokeCleanup"
             },
             "InvokeCleanup": {
@@ -542,6 +690,11 @@ Resources:
               "Error": "CleanupFailed",
               "Cause": "Retry checkpoint decided to stop. See lastCleanupResult/error."
             },
+            "NotificationFail": {
+              "Type": "Fail",
+              "Error": "PriorNotificationFailed",
+              "Cause": "Unable to send prior intimation mail."
+            },
             "Done": {
               "Type": "Succeed"
             }
@@ -587,7 +740,7 @@ Resources:
       Name: !Sub '${AWS::StackName}-SecondFriday6PMET'
       Description: Starts cleanup Step Functions execution on second Friday at 6 PM Eastern Time
       FlexibleTimeWindow:
-        Mode: OFF
+        Mode: "OFF"
       ScheduleExpression: !Ref ScheduleExpression
       ScheduleExpressionTimezone: !Ref ScheduleExpressionTimezone
       State: ENABLED
@@ -618,6 +771,12 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-RetryDecisionHandler'
       RetentionInDays: 30
 
+  NotificationLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-PriorIntimationHandler'
+      RetentionInDays: 30
+
   StateMachineLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -640,6 +799,18 @@ Metadata:
           - LambdaTimeout
           - RetryLambdaMemorySize
           - RetryLambdaTimeout
+          - NotificationLambdaMemorySize
+          - NotificationLambdaTimeout
+      - Label:
+          default: Notification Configuration
+        Parameters:
+          - SmtpRelayHost
+          - SmtpRelayPort
+          - SmtpUseStartTLS
+          - SmtpUsername
+          - SmtpPassword
+          - NotificationMailFrom
+          - NotificationMailTo
       - Label:
           default: Retry Configuration
         Parameters:
@@ -664,6 +835,7 @@ Metadata:
           - LambdaCodeS3Bucket
           - CleanupLambdaS3Key
           - RetryLambdaS3Key
+          - NotificationLambdaS3Key
           - PyYAMLLayerS3Bucket
           - PyYAMLLayerS3Key
 
@@ -679,6 +851,12 @@ Outputs:
     Value: !GetAtt RetryCheckpointLambda.Arn
     Export:
       Name: !Sub '${AWS::StackName}-RetryLambdaArn'
+
+  NotificationLambdaArn:
+    Description: ARN of the Notification Lambda function
+    Value: !GetAtt NotificationLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-NotificationLambdaArn'
   
   StateMachineArn:
     Description: ARN of the Step Functions state machine

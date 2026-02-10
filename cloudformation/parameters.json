@@ -28,6 +28,14 @@
     "ParameterValue": "60"
   },
   {
+    "ParameterKey": "NotificationLambdaMemorySize",
+    "ParameterValue": "128"
+  },
+  {
+    "ParameterKey": "NotificationLambdaTimeout",
+    "ParameterValue": "60"
+  },
+  {
     "ParameterKey": "MaxRetryAttempts",
     "ParameterValue": "5"
   },
@@ -64,6 +72,34 @@
     "ParameterValue": "{\"s3\":[\"prod-*\",\"backup-*\",\"cloudtrail-*\"],\"rds\":[\"production-*\"],\"ec2\":[\"i-prod*\"],\"lambda\":[\"cleanup-automation-*\"],\"cloudformation\":[\"cleanup-automation-*\"]}"
   },
   {
+    "ParameterKey": "SmtpRelayHost",
+    "ParameterValue": "test.com"
+  },
+  {
+    "ParameterKey": "SmtpRelayPort",
+    "ParameterValue": "425"
+  },
+  {
+    "ParameterKey": "SmtpUseStartTLS",
+    "ParameterValue": "false"
+  },
+  {
+    "ParameterKey": "SmtpUsername",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "SmtpPassword",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "NotificationMailFrom",
+    "ParameterValue": "cleanup-automation@test.com"
+  },
+  {
+    "ParameterKey": "NotificationMailTo",
+    "ParameterValue": "ops@test.com"
+  },
+  {
     "ParameterKey": "LambdaCodeS3Bucket",
     "ParameterValue": "YOUR_S3_BUCKET_NAME"
   },
@@ -74,6 +110,10 @@
   {
     "ParameterKey": "RetryLambdaS3Key",
     "ParameterValue": "retry-lambda.zip"
+  },
+  {
+    "ParameterKey": "NotificationLambdaS3Key",
+    "ParameterValue": "notification-lambda.zip"
   },
   {
     "ParameterKey": "PyYAMLLayerS3Bucket",

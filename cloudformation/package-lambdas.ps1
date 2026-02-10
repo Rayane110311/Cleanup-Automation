@@ -4,7 +4,7 @@
 param(
     [Parameter(Mandatory=$false)]
     [string]$S3Bucket = "",
-    
+
     [Parameter(Mandatory=$false)]
     [switch]$UploadToS3 = $false
 )
@@ -42,7 +42,7 @@ Copy-Item -Path (Join-Path $cleanupDir "cleanup_script.py") -Destination $tempCl
 
 # Create ZIP for cleanup lambda
 Compress-Archive -Path "$tempCleanup\*" -DestinationPath $cleanupZip -Force
-Write-Host "  ✓ Created: $cleanupZip" -ForegroundColor Green
+Write-Host "  [OK] Created: $cleanupZip" -ForegroundColor Green
 
 Write-Host "`nStep 2: Packaging Retry Lambda..." -ForegroundColor Green
 $retryDir = Join-Path $lambdaDir "retry-lambda"
@@ -57,9 +57,24 @@ Copy-Item -Path (Join-Path $retryDir "lambda_function.py") -Destination $tempRet
 
 # Create ZIP for retry lambda
 Compress-Archive -Path "$tempRetry\*" -DestinationPath $retryZip -Force
-Write-Host "  ✓ Created: $retryZip" -ForegroundColor Green
+Write-Host "  [OK] Created: $retryZip" -ForegroundColor Green
 
-Write-Host "`nStep 3: Packaging PyYAML Layer..." -ForegroundColor Green
+Write-Host "`nStep 3: Packaging Notification Lambda..." -ForegroundColor Green
+$notificationDir = Join-Path $lambdaDir "notification-lambda"
+$notificationZip = Join-Path $buildDir "notification-lambda.zip"
+
+# Create temp directory for notification lambda
+$tempNotification = Join-Path $buildDir "temp-notification"
+New-Item -ItemType Directory -Path $tempNotification | Out-Null
+
+# Copy notification lambda files
+Copy-Item -Path (Join-Path $notificationDir "lambda_function.py") -Destination $tempNotification
+
+# Create ZIP for notification lambda
+Compress-Archive -Path "$tempNotification\*" -DestinationPath $notificationZip -Force
+Write-Host "  [OK] Created: $notificationZip" -ForegroundColor Green
+
+Write-Host "`nStep 4: Packaging PyYAML Layer..." -ForegroundColor Green
 $layerZip = Join-Path $buildDir "pyyaml-layer.zip"
 
 # Create layer structure
@@ -70,20 +85,21 @@ New-Item -ItemType Directory -Path $pythonDir -Force | Out-Null
 # Copy package contents to layer
 if (Test-Path $packageDir) {
     Copy-Item -Path "$packageDir\*" -Destination $pythonDir -Recurse -Force
-    Write-Host "  ✓ Copied PyYAML package contents" -ForegroundColor Green
+    Write-Host "  [OK] Copied PyYAML package contents" -ForegroundColor Green
 } else {
-    Write-Host "  ⚠ Warning: Package directory not found. You may need to install PyYAML manually." -ForegroundColor Yellow
+    Write-Host "  [WARN] Package directory not found. You may need to install PyYAML manually." -ForegroundColor Yellow
     Write-Host "    Run: pip install pyyaml -t $pythonDir" -ForegroundColor Yellow
 }
 
 # Create ZIP for layer
 Compress-Archive -Path "$tempLayer\*" -DestinationPath $layerZip -Force
-Write-Host "  ✓ Created: $layerZip" -ForegroundColor Green
+Write-Host "  [OK] Created: $layerZip" -ForegroundColor Green
 
 # Clean up temp directories
 Write-Host "`nCleaning up temporary files..." -ForegroundColor Yellow
 Remove-Item -Path $tempCleanup -Recurse -Force
 Remove-Item -Path $tempRetry -Recurse -Force
+Remove-Item -Path $tempNotification -Recurse -Force
 Remove-Item -Path $tempLayer -Recurse -Force
 
 Write-Host "`n=====================================" -ForegroundColor Cyan
@@ -92,34 +108,36 @@ Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host "`nGenerated files in: $buildDir" -ForegroundColor White
 Write-Host "  - cleanup-lambda.zip" -ForegroundColor White
 Write-Host "  - retry-lambda.zip" -ForegroundColor White
+Write-Host "  - notification-lambda.zip" -ForegroundColor White
 Write-Host "  - pyyaml-layer.zip" -ForegroundColor White
 
 # Upload to S3 if requested
 if ($UploadToS3) {
     if ([string]::IsNullOrWhiteSpace($S3Bucket)) {
-        Write-Host "`n⚠ Error: S3Bucket parameter is required when using -UploadToS3" -ForegroundColor Red
+        Write-Host "`n[ERROR] S3Bucket parameter is required when using -UploadToS3" -ForegroundColor Red
         exit 1
     }
-    
+
     Write-Host "`n=====================================" -ForegroundColor Cyan
     Write-Host "Uploading to S3" -ForegroundColor Cyan
     Write-Host "=====================================" -ForegroundColor Cyan
-    
+
     # Check if AWS CLI is available
     try {
         aws --version | Out-Null
     } catch {
-        Write-Host "⚠ Error: AWS CLI not found. Please install AWS CLI first." -ForegroundColor Red
+        Write-Host "[ERROR] AWS CLI not found. Please install AWS CLI first." -ForegroundColor Red
         exit 1
     }
-    
+
     Write-Host "`nUploading files to s3://$S3Bucket/..." -ForegroundColor Yellow
-    
+
     aws s3 cp $cleanupZip "s3://$S3Bucket/cleanup-lambda.zip"
     aws s3 cp $retryZip "s3://$S3Bucket/retry-lambda.zip"
+    aws s3 cp $notificationZip "s3://$S3Bucket/notification-lambda.zip"
     aws s3 cp $layerZip "s3://$S3Bucket/pyyaml-layer.zip"
-    
-    Write-Host "`n✓ Upload complete!" -ForegroundColor Green
+
+    Write-Host "`n[OK] Upload complete!" -ForegroundColor Green
     Write-Host "`nNext steps:" -ForegroundColor Cyan
     Write-Host "  1. Update parameters.json with your S3 bucket name: $S3Bucket" -ForegroundColor White
     Write-Host "  2. Deploy the CloudFormation stack" -ForegroundColor White
@@ -128,6 +146,7 @@ if ($UploadToS3) {
     Write-Host "  1. Upload the ZIP files to your S3 bucket:" -ForegroundColor White
     Write-Host "     aws s3 cp build/cleanup-lambda.zip s3://YOUR-BUCKET/" -ForegroundColor Gray
     Write-Host "     aws s3 cp build/retry-lambda.zip s3://YOUR-BUCKET/" -ForegroundColor Gray
+    Write-Host "     aws s3 cp build/notification-lambda.zip s3://YOUR-BUCKET/" -ForegroundColor Gray
     Write-Host "     aws s3 cp build/pyyaml-layer.zip s3://YOUR-BUCKET/" -ForegroundColor Gray
     Write-Host "`n  2. Update parameters.json with your S3 bucket name" -ForegroundColor White
     Write-Host "`n  3. Deploy the CloudFormation stack using deploy-stack.ps1" -ForegroundColor White
