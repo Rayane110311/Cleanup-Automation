@@ -40,6 +40,30 @@
     "ParameterValue": "true"
   },
   {
+    "ParameterKey": "EnableScheduledExecution",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "ScheduleExpression",
+    "ParameterValue": "cron(0 18 ? * FRI#2 *)"
+  },
+  {
+    "ParameterKey": "ScheduleExpressionTimezone",
+    "ParameterValue": "America/New_York"
+  },
+  {
+    "ParameterKey": "ScheduledRegionsJson",
+    "ParameterValue": "[\"us-east-1\"]"
+  },
+  {
+    "ParameterKey": "ScheduledDryRun",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "ScheduledExclusionsJson",
+    "ParameterValue": "{\"s3\":[\"prod-*\",\"backup-*\",\"cloudtrail-*\"],\"rds\":[\"production-*\"],\"ec2\":[\"i-prod*\"],\"lambda\":[\"cleanup-automation-*\"],\"cloudformation\":[\"cleanup-automation-*\"]}"
+  },
+  {
     "ParameterKey": "LambdaCodeS3Bucket",
     "ParameterValue": "YOUR_S3_BUCKET_NAME"
   },

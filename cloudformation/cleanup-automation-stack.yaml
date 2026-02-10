@@ -88,9 +88,46 @@ Parameters:
     Default: 10.0.0.0/8
     Description: CIDR block allowed for inbound traffic to Lambda security group
 
+  EnableScheduledExecution:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable EventBridge Scheduler to start cleanup on the second Friday at 6 PM Eastern Time
+
+  ScheduleExpression:
+    Type: String
+    Default: 'cron(0 18 ? * FRI#2 *)'
+    Description: Schedule expression for EventBridge Scheduler (second Friday at 6 PM)
+
+  ScheduleExpressionTimezone:
+    Type: String
+    Default: 'America/New_York'
+    Description: IANA time zone for scheduled execution
+
+  ScheduledRegionsJson:
+    Type: String
+    Default: '["us-east-1"]'
+    Description: JSON array of regions for scheduled execution payload
+
+  ScheduledDryRun:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Whether scheduled execution runs in dry-run mode
+
+  ScheduledExclusionsJson:
+    Type: String
+    Default: '{"s3":["prod-*","backup-*","cloudtrail-*"],"rds":["production-*"],"ec2":["i-prod*"],"lambda":["cleanup-automation-*"],"cloudformation":["cleanup-automation-*"]}'
+    Description: JSON object of exclusion patterns for scheduled execution payload
+
 
 Conditions:
   EnableXRay: !Equals [!Ref EnableXRayTracing, 'true']
+  EnableSchedule: !Equals [!Ref EnableScheduledExecution, 'true']
 
 Resources:
   # ========================================
@@ -515,6 +552,58 @@ Resources:
           Value: !Sub '${AWS::StackName}-CleanupStateMachine'
 
   # ========================================
+  # EventBridge Scheduler (Second Friday 6 PM ET)
+  # ========================================
+  ScheduledExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: EnableSchedule
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-SchedulerRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StartStateMachineExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource:
+                  - !Ref CleanupStateMachine
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-SchedulerRole'
+
+  CleanupStateMachineSchedule:
+    Type: AWS::Scheduler::Schedule
+    Condition: EnableSchedule
+    Properties:
+      Name: !Sub '${AWS::StackName}-SecondFriday6PMET'
+      Description: Starts cleanup Step Functions execution on second Friday at 6 PM Eastern Time
+      FlexibleTimeWindow:
+        Mode: OFF
+      ScheduleExpression: !Ref ScheduleExpression
+      ScheduleExpressionTimezone: !Ref ScheduleExpressionTimezone
+      State: ENABLED
+      Target:
+        Arn: !Ref CleanupStateMachine
+        RoleArn: !GetAtt ScheduledExecutionRole.Arn
+        Input: !Sub |
+          {
+            "input": {
+              "regions": ${ScheduledRegionsJson},
+              "dryRun": ${ScheduledDryRun},
+              "exclusions": ${ScheduledExclusionsJson}
+            }
+          }
+
+  # ========================================
   # CloudWatch Log Groups
   # ========================================
   CleanupLambdaLogGroup:
@@ -561,6 +650,15 @@ Metadata:
         Parameters:
           - EnableXRayTracing
       - Label:
+          default: Scheduled Execution Configuration
+        Parameters:
+          - EnableScheduledExecution
+          - ScheduleExpression
+          - ScheduleExpressionTimezone
+          - ScheduledRegionsJson
+          - ScheduledDryRun
+          - ScheduledExclusionsJson
+      - Label:
           default: Deployment Configuration (Required)
         Parameters:
           - LambdaCodeS3Bucket
@@ -595,3 +693,8 @@ Outputs:
   StepFunctionsRoleArn:
     Description: ARN of the Step Functions execution role
     Value: !GetAtt StepFunctionsExecutionRole.Arn
+
+  ScheduledExecutionName:
+    Condition: EnableSchedule
+    Description: Name of the EventBridge Scheduler schedule
+    Value: !Ref CleanupStateMachineSchedule
